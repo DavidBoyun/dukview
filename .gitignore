@@ -1,0 +1,33 @@
+# ─── secrets ───
+.env
+.env.*
+!.env.example
+
+# ─── deps & build ───
+node_modules/
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# ─── logs ───
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ─── OS / editor ───
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ─── AI / session state (local only) ───
+.claude/
+
+# ─── stray / accidental ───
+{app/
