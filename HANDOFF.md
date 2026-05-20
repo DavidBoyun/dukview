@@ -481,3 +481,126 @@
 - Codex 사본 전체 merge
 - 정본 파일 전체 overwrite (모든 변경은 `Edit`으로 부분 수정)
 - `.env.local` 직접 수정
+
+---
+
+## 2026-05-20
+
+### 완료 — `/api/og-image` SSRF guard 적용 (Tier 1 + Tier 2)
+
+**수정 파일 (1개)**
+- `app/api/og-image/route.ts` — 58줄 → 178줄, 단일 파일 수정
+- 기존 cache / `extractOgImage` / 응답 스키마 (`{ imageUrl: string \| null }`) 유지
+- UI 수정 ❌ / 다른 API route 수정 ❌
+
+**Tier 1 — 정적 검증**
+- `new URL()` 파싱, `protocol ∈ {http:, https:}` 강제 (regex 검증 폐기)
+- 포트: 명시 없음 또는 `80`/`443`만 허용
+- hostname 차단: `localhost`, `*.localhost`, `*.local`, `*.internal`
+- IPv4 사설/예약 대역 차단: `0/8`, `10/8`, `127/8`, `169.254/16`, `172.16/12`, `192.168/16`, `100.64/10` (CGNAT), `224/4` (multicast/reserved)
+- IPv6 차단: `::1`, `::`, `fe80::/10` (link-local), `fc00::/7` (ULA), `::ffff:<사설 IPv4>` 매핑
+
+**Tier 2 — DNS lookup 재검증**
+- `node:dns/promises.lookup(hostname, { all: true })`로 모든 resolve된 IP를 Tier 1 규칙으로 재판정
+- DNS rebinding / wildcard DNS (`*.nip.io` 류) 우회 차단
+- resolve 실패 / 결과 0건이면 null
+
+**Redirect 처리**
+- `redirect: "manual"` + 최대 3 hop
+- 각 hop의 `Location`을 `validateUrl`로 재검증 후 진행
+- hop budget 초과 / 검증 실패 시 null
+
+**Fail-safe**
+- 모든 실패 경로에서 `{ imageUrl: null }` 반환 → NewsCard placeholder fallback으로 흡수
+- 앱 크래시 없음
+- per-hop 타임아웃 `AbortSignal.timeout(6000)` 유지
+
+**검증**
+- `npx tsc --noEmit` → 0 errors
+- 차단 케이스: localhost / 127.0.0.1 / 169.254.169.254 / 10.x / 172.16~31.x / 192.168.x / 100.64.x / `[::1]` / `[fe80::1]` / `[fc00::1]` / `[::ffff:127.0.0.1]` / `ftp://` / `javascript:` / `:22` 등 비표준 포트 / 302 → 사설IP 우회 / 4+ hop
+- 통과 케이스: `news.google.com` / `n.news.naver.com` / `chosun.com` / `hankyung.com` / `mk.co.kr` / `news1.kr` / `yna.co.kr` 등 한국 언론사 도메인 전반
+
+---
+
+### Internal preview 배포 사전 준비 (5/18 ~ 5/20 누적)
+
+| 항목 | 상태 | 비고 |
+|------|------|------|
+| `.gitignore` | ✅ | secrets / `.env*` / `node_modules` / `.next` / `.claude` / OS junk |
+| `.env.example` | ✅ | YouTube / Naver placeholder + 발급 URL 주석 |
+| `README.md` | ✅ | Phase 1 MVP / preview 단계 명시, 설치 3단계, env 표 |
+| GitHub private repo 생성 + initial commit + push | ✅ | `06ea067 chore: initial commit (Phase 1 MVP, internal preview)` |
+| `.env.local` 미커밋 확인 | ✅ | `.gitignore` 차단, 215 bytes 원본 그대로 |
+| `/api/og-image` SSRF guard | ✅ | Tier 1 + Tier 2 |
+
+---
+
+### Internal preview 기준 보안 상태 요약
+
+| 항목 | 상태 | public 배포 전 |
+|------|------|----------------|
+| Secrets 노출 차단 | ✅ | — |
+| `/api/og-image` SSRF | ✅ Tier 1+2 | IP-pin custom Agent (TOCTOU race 차단) |
+| 다른 API 라우트 SSRF | 🟢 위험 낮음 | 외부 URL 직접 입력 받는 라우트 없음 (Google News / Naver / YouTube / DC만 호출) |
+| Auth / Rate limit | ❌ 없음 | P1 별도 라운드 |
+| HTTPS 강제 | ❌ http 허용 | 검토 |
+| 응답 본문 크기 가드 | ❌ 무제한 | `Content-Length` 검사 또는 stream + max-bytes |
+| Vercel Password Protection | ❌ 미적용 | preview 공개 범위 결정 후 |
+| WAF / Vercel firewall | ❌ 미적용 | public 배포 시 |
+
+---
+
+### 배포 전 남은 체크리스트
+
+1. **Vercel 계정 문제 해결** ⚠️ — deploy 강행 금지, 계정 정상화 우선
+2. Vercel 프로젝트 환경변수 입력
+   - `TUBE_API_KEY`
+   - `YOUTUBE_DATA_API_ENABLED`
+   - `YOUTUBE_SEARCH_DAILY_LIMIT`
+   - `NAVER_CLIENT_ID`
+   - `NAVER_CLIENT_SECRET`
+3. Preview deploy 실행 (Vercel dashboard 또는 CLI)
+4. 배포 직후 GitHub repo 페이지에서 secret 키워드 검색 (`AIzaSy`, Naver secret 앞 8자) → 0건 재확인
+5. `git log --all -- .env.local` 빈 출력 확인 (`.env.local` 커밋 이력 0건)
+6. preview URL 공유 범위 제한
+   - Vercel Password Protection 또는 비공개 링크 운영
+   - 외부 SNS / 커뮤니티 공유 ❌
+
+---
+
+### 다음 개발 우선순위 (preview 운영 중 관찰)
+
+1. **데이터 품질 관찰**
+   - 태민 화면에 타 멤버 / 타 아티스트 브리핑 섞이는 빈도 추적
+   - source filtering / keyword matching / news context keyword 우선 확인
+2. **블로그 노이즈 사례 수집**
+   - 네이버 블로그 카드에서 광고 / 도배 / 저질 콘텐츠 사례 기록
+   - 차단 키워드 / 블랙리스트 후보 누적
+3. **썸네일 누락 사례 수집**
+   - og:image 추출 실패 도메인 목록화
+   - placeholder fallback 비율 측정
+   - SSRF guard에 의한 false positive 사례 발생 여부 확인
+
+후순위 / 보류
+- Event Intelligence (D-day 일정 자동 수집·LLM 추출) — **후순위, 대공사 금지**
+- Hero Briefing (LLM 요약) — **계속 보류**
+- 입문자 모드 / 하단 네비게이션 개편 / dv-* 시멘틱 마이그레이션 — **계속 보류**
+- `/api/briefing` (Groq LLM) — **계속 보류**
+
+---
+
+### 아직 하지 말 것
+
+- ❌ public release / public 공개 deploy
+- ❌ GitHub repo를 public으로 전환
+- ❌ 대규모 UI 수정 / 전체 리팩토링
+- ❌ Hero Briefing 구현 / `/api/briefing` 신설
+- ❌ Event Intelligence 대공사 (`upcomingEvents` 자동 수집·LLM 추출 등)
+- ❌ 다른 API 라우트에 rate limit / auth 같은 P1 작업을 이번 라운드에서 묶어 처리
+- ❌ Vercel deploy를 계정 문제 미해결 상태에서 강행
+
+### 절대 금지 (재확인)
+- Codex 사본의 `HANDOFF.md` / `CLAUDE.md`를 정본에 덮어쓰기
+- Codex 사본 전체 merge
+- 정본 파일 전체 overwrite (모든 변경은 `Edit`으로 부분 수정)
+- `.env.local` 직접 수정
