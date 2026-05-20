@@ -60,8 +60,20 @@ function isIpv6Blocked(ip: string): boolean {
   if (lower === "::1" || lower === "::") return true;
   if (/^fe[89ab]/.test(lower)) return true; // fe80::/10 link-local
   if (/^f[cd]/.test(lower)) return true;    // fc00::/7 ULA
-  const mapped = lower.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
-  if (mapped) return isIpv4Blocked(mapped[1]);
+
+  // ::ffff:x.x.x.x — IPv4-mapped dotted form
+  let m = lower.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (m) return isIpv4Blocked(m[1]);
+
+  // ::ffff:HHHH:HHHH — IPv4-mapped hex form (WHATWG canonical)
+  // ::HHHH:HHHH — IPv4-compatible deprecated form
+  m = lower.match(/^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (m) {
+    const hi = parseInt(m[1], 16);
+    const lo = parseInt(m[2], 16);
+    return isIpv4Blocked(`${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`);
+  }
+
   return false;
 }
 
