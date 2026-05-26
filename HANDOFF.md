@@ -484,7 +484,7 @@
 
 ---
 
-## 2026-05-20
+## 2026-05-20 (1차 — SSRF guard 적용)
 
 ### 완료 — `/api/og-image` SSRF guard 적용 (Tier 1 + Tier 2)
 
@@ -598,6 +598,174 @@
 - ❌ Event Intelligence 대공사 (`upcomingEvents` 자동 수집·LLM 추출 등)
 - ❌ 다른 API 라우트에 rate limit / auth 같은 P1 작업을 이번 라운드에서 묶어 처리
 - ❌ Vercel deploy를 계정 문제 미해결 상태에서 강행
+
+### 절대 금지 (재확인)
+- Codex 사본의 `HANDOFF.md` / `CLAUDE.md`를 정본에 덮어쓰기
+- Codex 사본 전체 merge
+- 정본 파일 전체 overwrite (모든 변경은 `Edit`으로 부분 수정)
+- `.env.local` 직접 수정
+
+---
+
+## 2026-05-20 (2차 — IPv6-mapped 보강 + live 검증 + push)
+
+### 완료 — IPv6-mapped IPv4 hex 형식 보강
+
+**버그 발견 (재시작 후 live 검증 중)**
+- `[::ffff:127.0.0.1]` 요청이 HTTP 200으로 통과 — Tier 1 hole
+- 원인: WHATWG URL 파서가 `::ffff:127.0.0.1` → `::ffff:7f00:1` (16진수)로 정규화. 1차 패치의 `isIpv6Blocked` regex는 점-구분 형식만 매칭해서 우회됨
+
+**패치 (commit `9b84e15`)**
+- `app/api/og-image/route.ts` +14 / −2
+- `isIpv6Blocked`에 hex 형식(`::ffff:HHHH:HHHH`) + 옛 IPv4-compatible 형식(`::HHHH:HHHH`) 매칭 추가
+- 16-bit hex 2개를 octet 4개로 분해 → `isIpv4Blocked` 재사용
+- `npx tsc --noEmit` → 0 errors
+
+---
+
+### 완료 — Dev server 재시작 + live 검증
+
+`kill 20915` (19일 떠 있던 묵은 서버) → `npm run dev` 재시작 → curl 30 케이스 검증.
+
+**차단 케이스 (HTTP 400, body `{"imageUrl":null}`) — 20/20 통과**
+
+| 카테고리 | 통과 패턴 |
+|---------|-----------|
+| 입력 검증 | no `url` 파라미터, 비-URL, `ftp://`, `javascript:`, port `:22` |
+| hostname 차단 | `localhost`, `app.localhost`, `something.local` |
+| IPv4 사설 | `127.0.0.1`, `0.0.0.0`, `10.0.0.5`, `169.254.169.254`, `172.20.1.1`, `192.168.1.1`, `100.64.0.1` |
+| IPv6 리터럴 | `[::1]`, `[fe80::1]`, `[fc00::1]` |
+| **IPv6-mapped (패치 후)** | `[::ffff:127.0.0.1]`, `[::ffff:10.0.0.1]`, `[::ffff:192.168.0.1]`, `[::ffff:169.254.1.1]`, hex `[::ffff:c0a8:1]`, deprecated `[::7f00:1]` |
+| **Tier 2 DNS rebinding** | `127.0.0.1.nip.io` (wildcard DNS → 127.0.0.1) |
+
+**통과 케이스 (HTTP 200) — 10/10 통과**
+
+| 도메인 | 결과 |
+|--------|------|
+| `news.google.com` | ✅ og:image 추출 |
+| `n.news.naver.com` | ✅ og:image 추출 |
+| `www.naver.com` | ✅ og:image 추출 |
+| `www.chosun.com` | null (도메인이 og:image 미제공 — placeholder fallback 정상) |
+| `www.hankyung.com` | ✅ |
+| `www.mk.co.kr` | ✅ |
+| `news1.kr` | ✅ |
+| `www.yna.co.kr` | ✅ |
+| `www.youtube.com` | ✅ |
+| `example.com` | null (정상) |
+
+회귀 없음. 차단/통과 분기 모두 의도대로 동작.
+
+---
+
+### 완료 — push 처리
+
+- 로컬 commit 2건
+  - `d8e30e6 chore: add SSRF guard to /api/og-image`
+  - `9b84e15 fix: cover IPv6-mapped IPv4 forms in SSRF guard`
+- 터미널 `git push` → HTTPS 자격 증명 미설정으로 `fatal: could not read Username for 'https://github.com'`
+- 해결: GitHub Desktop으로 push origin 진행 → `origin/main` 동기화 완료 (`git status` clean)
+- `gh` CLI 미설치 — 다음 push도 GitHub Desktop 사용 권장 (또는 SSH remote 전환 / Personal Access Token + keychain)
+
+---
+
+### 로컬 dev server
+
+- `npm run dev` 백그라운드 실행 중 → http://localhost:3000
+- SSRF guard 최신 코드 반영된 상태
+- 다음 세션 진입 시 살아 있을 수 있음 — 필요하면 `lsof -nP -iTCP:3000 -sTCP:LISTEN`으로 확인 후 `kill <pid>`
+
+---
+
+### 다음 행동 후보 (불변)
+
+1. Vercel 계정 정상화 → preview deploy
+2. 운영 중 데이터 품질·블로그 노이즈·썸네일 누락 사례 수집
+3. public 배포 전 P1 항목 (rate limit, IP-pin Agent, 응답 크기 가드, HTTPS 강제)
+
+### 절대 금지 (재확인)
+- Codex 사본의 `HANDOFF.md` / `CLAUDE.md`를 정본에 덮어쓰기
+- Codex 사본 전체 merge
+- 정본 파일 전체 overwrite (모든 변경은 `Edit`으로 부분 수정)
+- `.env.local` 직접 수정
+
+---
+
+## 2026-05-20 (3차 — 제품 고도화 계획 정리)
+
+### 완료 — `docs/ROADMAP.md` 신규 작성
+
+**작성 파일 (1개 신규)**
+- `docs/ROADMAP.md` — 제품 정의·핵심 타깃·제품 원칙·UI 방향·우선순위 로드맵 (P0~P3)
+
+**핵심 문장**
+> 오늘 덕질에서 진짜 중요한 것만 정리해주는 앱
+
+**핵심 타깃 (재확정)**
+- 4050 직장인 팬 — 시간 없음 / X 안 함 / 용어 어려움 / 루머·렉카 구분 힘듦
+- 덕질 입문자 — 컴백·직캠·단콘 용어 어려움 / 맥락 부족
+- 공통 — 공식 vs 추정 vs 팬덤 반응 구분 / D-day / 오늘 할 일 / 놓친 소식 요약
+
+**우선순위 로드맵 요약**
+
+| Tier | 항목 | 비고 |
+|------|------|------|
+| **P0** | Hero Briefing | 페이지 최상단 오늘의 핵심 토픽 1개, 신뢰도·관련 N건·왜 중요한지 한 줄 |
+| **P0** | 3줄 TL;DR | 공식 / 화제 / 팬덤 — 카드 없는 날도 "오늘은 조용해요" 솔직 표시 |
+| **P0** | 확정 / 추정 / 반응 / 노이즈 분류 | "이거 진짜야?" 판단 도구 |
+| P1 | 3섹션 구조 유지 | 꼭 봐야 함 / 지금 화제 / 여유 되면 |
+| P1 | 카드별 "왜 중요한지" 한 줄 | 중요 카드만 짧게 |
+| P1 | 출처 다양성 표시 | 관련 7건 · 뉴스 3 · 팬덤 3 · 공식 1 |
+| P1 | 다가오는 일정 위젯 (현행 유지 + 확장) | 확정/예상 표시, 캘린더 후보 |
+| P1 | 오늘 놓치면 안 되는 액션 | "오늘 체크할 것 3개" |
+| P1 | 알림 / 리마인더 (MVP는 캘린더·D-day) | 푸시는 후순위 |
+| P1.5 | 놓친 소식 요약 / 조용한 날 UX / 팬덤 온도 / 오늘의 대표 영상 | 재방문 핵심, localStorage 기반 가능 |
+| P2 | 입문자 모드 / 관심사 태그 / 노이즈 리포트 | 덕뷰 차별점 |
+| P3 | 로그인(선택) / 프리미엄 | 기능 안정화 후 |
+
+---
+
+### 우선순위 변경 — 이전 "아직 하지 말 것"의 일부 해제
+
+**이전 (1차 entry, 2026-05-20 14시경 기준)** 에서 `❌ Hero Briefing 구현 / /api/briefing 신설` 및 `❌ Event Intelligence 대공사` 가 보류 항목으로 명시되어 있었음.
+
+**3차 entry (현재)** 부터 **다음 항목은 정식 우선순위로 진입**:
+- Hero Briefing → **P0**
+- 3줄 TL;DR → **P0**
+- 확정 / 추정 / 반응 분류 → **P0**
+- 다가오는 일정 위젯 확장 (확정/예상, 캘린더 후보) → **P1**
+
+**여전히 유효한 제약** (해제되지 않음):
+- ❌ public release / public 공개 deploy
+- ❌ GitHub repo를 public으로 전환
+- ❌ 대규모 UI 수정 / 전체 리팩토링 (P0·P1 작업도 점진적으로)
+- ❌ 하단 네비 개편 먼저 하기
+- ❌ 다른 API 라우트에 rate limit / auth 같은 P1 보안 작업을 같은 라운드에 묶어 처리
+- ❌ Vercel deploy를 계정 문제 미해결 상태에서 강행
+- ❌ 처음부터 로그인 강제
+- ❌ 과한 glass / shadow / 떠오르는 카드
+- ❌ 입문자 설명 과다 노출
+
+---
+
+### 다음 작업 진입 전 점검 사항
+
+1. **데이터 모델 — 신뢰도 분류**
+   - `FeedCard`에 신뢰도(`confidence: "confirmed" | "estimated" | "reaction" | "noise"`) 필드 추가 검토
+   - 분류 로직: 공식 채널 화이트리스트 / 언론 도메인 / 팬커뮤니티 / 키워드 패턴
+   - 기존 `isOfficial`, `stats`, `sources` 필드와 충돌·중복 확인
+2. **Hero Briefing 데이터 소스**
+   - 기존 `OverviewPanel`의 `clusterCards` / `scoreCluster` 결과를 1위 클러스터 뽑아 재사용 가능한지 검토
+   - 신규 `/api/briefing` LLM 라우트 필요 여부 — 우선 결정론적(non-LLM)으로 시작 가능한지 점검 (`/api/briefing` 신설은 별도 의사결정)
+3. **3줄 TL;DR 데이터 소스**
+   - 공식 / 화제 / 팬덤 각 카테고리에 카드 매핑 규칙
+   - 카드 0건일 때 문구 fallback 처리
+4. **신뢰도 표현 / 카드 디자인**
+   - 라이트 톤에 맞는 배지 / 라벨 디자인 (shadow 없이 border + 채도 조절)
+   - 기존 `OverviewPanel` `getTrustBadge` 결과와 통일성 점검
+
+작업 순서는 `docs/ROADMAP.md` 우선순위 따라가되, **한 라운드당 1~2개 P0 항목**을 작은 단위로. 한 번에 P0 3개 동시 착수 금지.
+
+---
 
 ### 절대 금지 (재확인)
 - Codex 사본의 `HANDOFF.md` / `CLAUDE.md`를 정본에 덮어쓰기
