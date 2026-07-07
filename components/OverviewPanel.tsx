@@ -1,6 +1,7 @@
 "use client";
 
 import { FeedCard, UpcomingEvent } from "@/lib/types";
+import { formatTimeAgo as formatTime, isUnknownDate } from "@/lib/shared";
 
 type SourceId = "all" | "twitter" | "community" | "youtube" | "news";
 
@@ -92,23 +93,10 @@ const TERM_GLOSSARY: Array<{ terms: string[]; explain: string }> = [
 
 function getMinutesAgo(card: FeedCard): number {
   const d = new Date(card.publishedAt);
-  if (Number.isNaN(d.getTime()) || card.publishedAt === "1970-01-01T00:00:00.000Z") {
+  if (Number.isNaN(d.getTime()) || isUnknownDate(card.publishedAt)) {
     return Number.POSITIVE_INFINITY;
   }
   return Math.max(0, Math.floor((Date.now() - d.getTime()) / 60000));
-}
-
-function formatTime(iso: string): string {
-  if (iso === "1970-01-01T00:00:00.000Z") return "날짜 미상";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "날짜 미상";
-  const diff = Date.now() - d.getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "방금 전";
-  if (mins < 60) return `${mins}분 전`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}시간 전`;
-  return d.toLocaleDateString("ko-KR");
 }
 
 function getEventDDay(dateStr: string): { dday: number; label: string } {

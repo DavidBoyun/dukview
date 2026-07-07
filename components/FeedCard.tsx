@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { FeedCard as FeedCardType } from "@/lib/types";
 import { useFilterContext } from "@/contexts/FilterContext";
+import { formatTimeAgo as formatTime } from "@/lib/shared";
 
 interface Props {
   card: FeedCardType;
@@ -14,21 +15,6 @@ const COMMUNITY_META = {
   naver:    { label: "네이버", color: "#03C75A" },
   theqoo:   { label: "더쿠",  color: "#8B5CF6" },
 } as const;
-
-function formatTime(iso: string): string {
-  if (iso === "1970-01-01T00:00:00.000Z") return "날짜 미상";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "날짜 미상";
-  const diff = Date.now() - d.getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "방금 전";
-  if (mins < 60) return `${mins}분 전`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}시간 전`;
-  const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}일 전`;
-  return d.toLocaleDateString("ko-KR");
-}
 
 // ── YouTube Card ──────────────────────────────────────────────────────────────
 

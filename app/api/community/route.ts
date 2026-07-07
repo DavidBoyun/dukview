@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FeedCard } from "@/lib/types";
+import { hashId, stripTags, UNKNOWN_DATE_ISO } from "@/lib/shared";
 
 // ─────────────────────────────────────────────────────────────────
 // 커뮤니티 데이터 수집 정책
@@ -25,7 +26,7 @@ const CACHE_TTL_MS = 60 * 60 * 1000;
 const DC_PAGES_PER_BOARD = 3;
 const NAVER_BLOG_DISPLAY = 20;
 const THEQOO_WEB_DISPLAY = 20;
-const UNKNOWN_PUBLISHED_AT = "1970-01-01T00:00:00.000Z";
+const UNKNOWN_PUBLISHED_AT = UNKNOWN_DATE_ISO;
 const cache = new Map<string, { expiresAt: number; cards: FeedCard[] }>();
 
 function getCached(key: string): FeedCard[] | null {
@@ -37,26 +38,6 @@ function getCached(key: string): FeedCard[] | null {
 
 function setCache(key: string, cards: FeedCard[]) {
   cache.set(key, { cards, expiresAt: Date.now() + CACHE_TTL_MS });
-}
-
-function hashId(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
-  }
-  return `c${Math.abs(hash).toString(36)}`;
-}
-
-function decodeHtmlEntities(str: string): string {
-  return str
-    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
-}
-
-function stripTags(html: string): string {
-  return html.replace(/<[^>]+>/g, "").trim();
 }
 
 /** 제목에 filterTerms 중 하나라도 포함 → true (공유 게시판 전용) */
@@ -191,7 +172,7 @@ async function fetchDCInside(
         // 제목: gall_tit a 내부, <em> 다음 텍스트
         const titleRaw = row.match(/class="gall_tit[^"]*"[\s\S]*?<a[^>]+>([\s\S]*?)<\/a>/);
         if (!titleRaw) continue;
-        const title = decodeHtmlEntities(stripTags(titleRaw[1])).replace(/\s+/g, " ").trim();
+        const title = stripTags(titleRaw[1]);
         if (!title) continue;
 
         // 날짜: gall_date title 속성 (정확한 datetime)
@@ -203,7 +184,7 @@ async function fetchDCInside(
         if (needsFilter && !matchesTitle(title, filterTerms)) continue;
 
         cards.push({
-          id: hashId(link),
+          id: hashId(link, "c"),
           source: "community",
           communityProvider: "dcinside",
           sourceId: boardUrl,
@@ -274,15 +255,15 @@ async function fetchNaverBlog(
       return data.items.flatMap((item: any): FeedCard[] => {
         const link: string = item.link || "";
         const pd: string = item.postdate || "";
-        const title = stripTags(decodeHtmlEntities(item.title || ""));
-        const summary = stripTags(decodeHtmlEntities(item.description || "")).slice(0, 200);
+        const title = stripTags(item.title || "");
+        const summary = stripTags(item.description || "").slice(0, 200);
         if (!isRelevantNaverBlog(title, summary)) return [];
 
         const publishedAt = pd.length === 8
           ? new Date(`${pd.slice(0, 4)}-${pd.slice(4, 6)}-${pd.slice(6, 8)}`).toISOString()
           : new Date().toISOString();
         return [{
-          id: hashId(link || item.bloggername + pd),
+          id: hashId(link || item.bloggername + pd, "c"),
           source: "community",
           communityProvider: "naver",
           sourceId: "naver-blog",
@@ -343,14 +324,14 @@ async function fetchTheqooLinks(
 
       return data.items.flatMap((item: any): FeedCard[] => {
         const link: string = item.link || "";
-        const title = stripTags(decodeHtmlEntities(item.title || ""));
-        const summary = stripTags(decodeHtmlEntities(item.description || "")).slice(0, 200);
+        const title = stripTags(item.title || "");
+        const summary = stripTags(item.description || "").slice(0, 200);
         if (!link || !title) return [];
         if (!isTheqooLink(link)) return [];
         if (!isRelevantNaverBlog(title, summary)) return [];
 
         return [{
-          id: hashId(link),
+          id: hashId(link, "c"),
           source: "community",
           communityProvider: "theqoo",
           sourceId: "theqoo",

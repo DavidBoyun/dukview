@@ -5,6 +5,7 @@
 
 import { XMLParser } from "fast-xml-parser";
 import { FeedCard, SourceType } from "./types";
+import { hashId, stripTags } from "./shared";
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -14,36 +15,10 @@ const parser = new XMLParser({
   removeNSPrefix: true,
 });
 
-// HTML 태그 제거 + CDATA 정리
-function stripHtml(raw: string): string {
-  if (!raw) return "";
-  return raw
-    .replace(/<!\[CDATA\[|\]\]>/g, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 // 첫 이미지 추출
 function extractFirstImage(html: string): string | undefined {
   const match = html?.match(/<img[^>]+src=["']([^"']+)["']/i);
   return match?.[1];
-}
-
-// 링크에서 고유 ID 생성 (해시)
-function hashId(url: string): string {
-  let hash = 0;
-  for (let i = 0; i < url.length; i++) {
-    const chr = url.charCodeAt(i);
-    hash = (hash << 5) - hash + chr;
-    hash |= 0;
-  }
-  return Math.abs(hash).toString(36);
 }
 
 /**
@@ -88,10 +63,10 @@ export function parseRSS(
         : item.link?.["@_href"];
       const atomContent = item.content?.["#text"] ?? item["media:group"]?.["media:description"] ?? "";
 
-      const title = stripHtml(String(atomTitle || rssTitle || ""));
+      const title = stripTags(String(atomTitle || rssTitle || ""));
       const link = String(atomLink || rssLink || "");
       const rawDesc = String(atomContent || rssDesc || "");
-      const summary = stripHtml(rawDesc).slice(0, 200);
+      const summary = stripTags(rawDesc).slice(0, 200);
       const publishedAt = new Date(rssPub).toISOString();
 
       // 썸네일 추출 (유튜브는 media:thumbnail, 일반은 img 태그)

@@ -8,7 +8,6 @@ import { isLowReadability } from "@/lib/readabilityFilter";
 import { useFilterContext } from "@/contexts/FilterContext";
 import FeedCard from "@/components/FeedCard";
 import SourceFilterPanel from "@/components/SourceFilter";
-import AdSlot from "@/components/AdSlot";
 import OverviewPanel from "@/components/OverviewPanel";
 import XSignalComposer from "@/components/XSignalComposer";
 
@@ -702,8 +701,6 @@ export default function HomePage() {
           return <FeedCard key={card.id} card={card} collapsed={lowRead} />;
         })}
       </div>
-
-      <AdSlot />
 
       {/* 푸터 */}
       <div className="px-4 py-6 text-center text-[10px] text-slate-600 leading-relaxed">

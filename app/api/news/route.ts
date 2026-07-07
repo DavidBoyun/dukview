@@ -2,31 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { Artist, FeedCard } from "@/lib/types";
 import { parseRSS, googleNewsUrl } from "@/lib/rssParser";
 import { getArtistConfig } from "@/config/artists";
+import { hashId, stripTags } from "@/lib/shared";
 
 // ─────────────────────────────────────────────────────
 // /api/news — Google News RSS + Naver News API
 // GET ?q=검색어&artistId=xxx
 // ─────────────────────────────────────────────────────
-
-function hashId(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
-  }
-  return `n${Math.abs(hash).toString(36)}`;
-}
-
-function decodeHtmlEntities(str: string): string {
-  return str
-    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
-}
-
-function stripTags(html: string): string {
-  return decodeHtmlEntities(html.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
-}
 
 function includesArtistName(text: string, artist: Artist): boolean {
   const lower = text.toLowerCase();
@@ -89,7 +70,7 @@ async function fetchNaverNews(
       } catch {}
 
       return {
-        id: hashId(link || item.title || item.pubDate),
+        id: hashId(link || item.title || item.pubDate, "n"),
         source: "news",
         sourceId: sourceName,
         sourceName,
