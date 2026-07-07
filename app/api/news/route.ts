@@ -3,37 +3,12 @@ import { Artist, FeedCard } from "@/lib/types";
 import { parseRSS, googleNewsUrl } from "@/lib/rssParser";
 import { getArtistConfig } from "@/config/artists";
 import { hashId, stripTags } from "@/lib/shared";
+import { isRelevantArtistNews } from "@/lib/newsRelevance";
 
 // ─────────────────────────────────────────────────────
 // /api/news — Google News RSS + Naver News API
 // GET ?q=검색어&artistId=xxx
 // ─────────────────────────────────────────────────────
-
-function includesArtistName(text: string, artist: Artist): boolean {
-  const lower = text.toLowerCase();
-  const koreanNamePattern = new RegExp(`(^|[^가-힣])${artist.name}([^가-힣]|$)`);
-  return koreanNamePattern.test(text) || lower.includes(artist.en.toLowerCase());
-}
-
-function isRelevantArtistNews(card: FeedCard, artist: Artist): boolean {
-  const text = `${card.title} ${card.summary}`;
-  const title = card.title;
-  const lower = text.toLowerCase();
-  const excludeTerms = artist.sources.newsExcludeKeywords || [];
-  const contextTerms = artist.sources.newsContextKeywords || [
-    artist.name,
-    artist.en,
-    artist.groupName || "",
-    "가수",
-    "콘서트",
-    "앨범",
-    "무대",
-  ];
-
-  if (excludeTerms.some(term => lower.includes(term.toLowerCase()))) return false;
-  if (!includesArtistName(title, artist)) return false;
-  return contextTerms.filter(Boolean).some(term => lower.includes(term.toLowerCase()));
-}
 
 async function fetchNaverNews(
   query: string,

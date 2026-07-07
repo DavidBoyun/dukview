@@ -1,0 +1,30 @@
+name: collect
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # 30분 주기 (UTC, 수 분 지연 가능)
+  workflow_dispatch: {}       # 수동 실행
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22   # supabase-js 2.110+ 요구
+          cache: npm
+      - run: npm ci
+      - name: Run collector
+        run: npx tsx collector/index.ts
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          TUBE_API_KEY: ${{ secrets.TUBE_API_KEY }}
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
