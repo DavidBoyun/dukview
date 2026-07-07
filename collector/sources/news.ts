@@ -62,6 +62,21 @@ async function fetchNaverNews(query: string, artistId: string): Promise<FeedCard
   });
 }
 
+/** Google News 제목 "기사 제목 - 언론사명" 분해 (feed 오케스트레이션 이식) */
+function normalizeGoogleNewsCard(card: FeedCard): FeedCard {
+  if (card.sourceName !== "Google News") return card;
+  const lastDash = card.title.lastIndexOf(" - ");
+  if (lastDash <= 0 || lastDash >= card.title.length - 3) return card;
+
+  const realSource = card.title.slice(lastDash + 3).trim();
+  return {
+    ...card,
+    title: card.title.slice(0, lastDash).trim(),
+    sourceId: realSource,
+    sourceName: realSource,
+  };
+}
+
 /** 아티스트의 newsKeywords 전체를 수집·필터·중복제거해 반환 */
 export async function collectNews(artist: Artist): Promise<FeedCard[]> {
   const keywords = artist.sources.newsKeywords || [];
@@ -78,6 +93,7 @@ export async function collectNews(artist: Artist): Promise<FeedCard[]> {
 
   const seen = new Set<string>();
   return all
+    .map(normalizeGoogleNewsCard)
     .filter(card => card.link && isRelevantArtistNews(card, artist))
     .filter(card => {
       const key = hashId(card.link);

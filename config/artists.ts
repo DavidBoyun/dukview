@@ -1,9 +1,70 @@
 import { Artist } from "@/lib/types";
 
+// 글로벌 공유 채널 (소속사 통합 채널) — 모든 아티스트에게 제목 필터 적용
+export const SHARED_YOUTUBE_CHANNELS = [
+  "UCEf_Bc-KVd7onSeifS3py9g",  // SMTOWN
+  "UCLkAepWjdylmXSltofFvsYQ",  // HYBE (BANGTANTV)
+  "UCIHstIcyaD8tJBkfMkJFMOg",  // JYP
+  "UCJ1wC5yRahIM0ycKjYpZgTA",  // YG
+];
+
 function uniqueClean(values: Array<string | undefined>) {
   return Array.from(
     new Set(values.map(value => value?.trim()).filter(Boolean) as string[])
   );
+}
+
+// 커뮤니티(네이버 블로그·더쿠) 검색 설정 빌더 — 아티스트별 하드코딩 방지
+const COMMON_COMMUNITY_EXCLUDES = [
+  "bj", "아프리카tv", "롤", "리그오브레전드", "league of legends", "lol",
+  "발로란트", "브롤스타즈", "pubg", "free fire",
+];
+const BASE_MUSIC_CONTEXT = [
+  "가수", "아이돌", "솔로", "무대", "콘서트", "팬미팅",
+  "앨범", "뮤직비디오", "직캠", "팬캠", "fancam",
+];
+
+function buildCommunityNaverConfig(params: {
+  name: string;             // 한글 활동명 ("태민")
+  en: string;               // 영문명 ("TAEMIN")
+  groupKo?: string;         // 그룹 한글명 ("샤이니")
+  groupEn?: string;         // 그룹 영문명 ("SHINee")
+  extraContextTerms?: string[]; // 곡명 등 아티스트 고유 컨텍스트
+  excludeTerms?: string[];      // 동명이인 등
+}) {
+  const { name, en, groupKo, groupEn } = params;
+  const lowerEn = en.toLowerCase();
+  const lowerGroupEn = groupEn?.toLowerCase();
+
+  return {
+    blogQueries: uniqueClean([
+      `가수 ${name}`,
+      ...(groupKo ? [`${groupKo} ${name}`] : []),
+    ]),
+    webQueries: uniqueClean([
+      `site:theqoo.net ${name}`,
+      ...(groupKo ? [`site:theqoo.net ${groupKo} ${name}`] : []),
+      `site:theqoo.net ${en.toUpperCase()}`,
+    ]),
+    primaryTerms: uniqueClean([name, lowerEn]),
+    includeGroups: [
+      ["가수", name],
+      ...(groupKo ? [[groupKo, name]] : []),
+      ...(lowerGroupEn ? [[lowerGroupEn, lowerEn]] : []),
+      ...(lowerGroupEn ? [[lowerGroupEn, name]] : []),
+      ...(groupKo ? [[lowerEn, groupKo]] : []),
+    ],
+    contextTerms: uniqueClean([
+      ...(groupKo ? [groupKo] : []),
+      ...(lowerGroupEn ? [lowerGroupEn] : []),
+      ...BASE_MUSIC_CONTEXT,
+      ...(params.extraContextTerms || []),
+    ]),
+    excludeTerms: uniqueClean([
+      ...(params.excludeTerms || []),
+      ...COMMON_COMMUNITY_EXCLUDES,
+    ]),
+  };
 }
 
 function buildYoutubeSearchConfig(params: {
@@ -120,6 +181,18 @@ export const ARTISTS: Artist[] = [
         "TAEMIN",
         "SHINee 태민",
       ],
+      communityNaver: buildCommunityNaverConfig({
+        name: "태민",
+        en: "TAEMIN",
+        groupKo: "샤이니",
+        groupEn: "SHINee",
+        extraContextTerms: ["move", "guilty", "괴도", "길티"],
+        excludeTerms: ["유태민", "태민98", "담임", "담임목사", "목사", "교회", "목양"],
+      }),
+      boardNames: {
+        taemin: "디씨 태민갤",
+        shinee: "디씨 샤이니갤",
+      },
       youtubeChannelIds: [
         "UCa2YkG6KvkGXJd5UmvZbXGw",
       ],

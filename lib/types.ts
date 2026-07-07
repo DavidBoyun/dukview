@@ -95,6 +95,17 @@ export interface Artist {
     newsKeywords?: string[];     // 뉴스 검색 키워드
     newsContextKeywords?: string[];
     newsExcludeKeywords?: string[];
+    /** 네이버 블로그·더쿠 검색 설정 — collector가 사용. 하드코딩 금지, config 주입 (PR-4) */
+    communityNaver?: {
+      blogQueries: string[];     // 네이버 블로그 검색어
+      webQueries: string[];      // 더쿠 링크 검색어 (site:theqoo.net ...)
+      primaryTerms: string[];    // 본문에 반드시 포함될 아티스트 지칭어
+      includeGroups: string[][]; // OR그룹의 AND — 하나의 그룹이 전부 매칭되면 통과
+      contextTerms: string[];    // primaryTerm + 음악 컨텍스트 매칭용
+      excludeTerms: string[];    // 동명이인·노이즈 제외
+    };
+    /** DC 갤러리 id → 표시명 (기존 boardNameFromUrl 하드코딩 대체) */
+    boardNames?: Record<string, string>;
   };
 }
 

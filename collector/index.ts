@@ -9,14 +9,16 @@
 import { ARTISTS } from "../config/artists";
 import { getDb, syncArtists, upsertCards, recordRun, hadRecentSuccess } from "./db";
 import { collectNews } from "./sources/news";
+import { collectCommunity } from "./sources/community";
+import { collectYoutube } from "./sources/youtube";
 import { FeedCard, Artist } from "../lib/types";
 
 type SourceName = "news" | "community" | "youtube";
 
 const COLLECTORS: Partial<Record<SourceName, (artist: Artist) => Promise<FeedCard[]>>> = {
   news: collectNews,
-  // community: PR-4에서 추가 (config 주입 리팩터와 함께)
-  // youtube: PR-4에서 추가
+  community: collectCommunity,
+  youtube: collectYoutube,
 };
 
 async function main() {
