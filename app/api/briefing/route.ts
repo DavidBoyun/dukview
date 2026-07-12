@@ -1,40 +1,31 @@
 // ─────────────────────────────────────────────────────
-// /api/feed — Supabase cards 테이블 읽기 전용 (PR-5)
-// 수집은 collector(GitHub Actions)가 담당. 이 라우트는 SELECT만.
-// 구 실시간 self-fetch 오케스트레이터: _deprecated/api-feed-route-legacy.ts
+// /api/briefing — 최신 브리핑 스냅샷 읽기 전용 (PR-8)
+// 작성은 collector/briefing.ts (service role)만.
+// built_at desc 1행 조회 — is_latest 미의존 (builder insert→clear 레이스 무해)
 // ─────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from "next/server";
 import { getPublicDb } from "@/lib/supabasePublic";
-import { mapCardRow } from "@/lib/mapCardRow";
-import { FeedCard } from "@/lib/types";
 
 export async function GET(req: NextRequest) {
   const artistId = req.nextUrl.searchParams.get("artistId");
-  // 기존 파라미터(youtubeOrder/includeYoutubeSearch/useYoutubeSearchApi/keywords)는
-  // UI 호환을 위해 받되 무시한다 (DB 전환으로 소멸된 옵션)
   if (!artistId) {
     return NextResponse.json({ error: "artistId가 필요해요" }, { status: 400 });
   }
 
   const { data, error } = await getPublicDb()
-    .from("cards")
+    .from("briefings")
     .select("*")
     .eq("artist_id", artistId)
-    .order("published_at", { ascending: false, nullsFirst: false })
-    .limit(300);
+    .order("built_at", { ascending: false })
+    .limit(1);
 
   if (error) {
-    return NextResponse.json(
-      { error: error.message, cards: [], warnings: [] },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: error.message, briefing: null }, { status: 500 });
   }
 
-  const cards: FeedCard[] = (data ?? []).map(mapCardRow);
-
   return NextResponse.json(
-    { cards, warnings: [] },
+    { briefing: data?.[0] ?? null },
     { headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" } },
   );
 }

@@ -8,6 +8,7 @@
 
 import { ARTISTS } from "../config/artists";
 import { getDb, syncArtists, upsertCards, recordRun, hadRecentSuccess } from "./db";
+import { buildBriefing } from "./briefing";
 import { collectNews } from "./sources/news";
 import { collectCommunity } from "./sources/community";
 import { collectYoutube } from "./sources/youtube";
@@ -61,6 +62,26 @@ async function main() {
         console.error(`[${artist.id}/${source}] error: ${e?.message ?? e}`);
         if (await hadRecentSuccess(db, artist.id, source)) alert = true;
       }
+    }
+  }
+
+  // 수집 종료 후 아티스트별 브리핑 스냅샷 1회 계산 (PR-8)
+  // 실패는 경보(alert)에 연결하지 않는다 — 경보는 수집 전용, briefing은 collect_runs 기록만
+  for (const artist of ARTISTS) {
+    const startedAt = new Date().toISOString();
+    try {
+      const n = await buildBriefing(db, artist);
+      await recordRun(db, {
+        artistId: artist.id, source: "briefing", status: n === 0 ? "empty" : "ok",
+        itemCount: n, newCount: 0, startedAt,
+      });
+      console.log(`[${artist.id}/briefing] ${n === 0 ? "empty" : "ok"}: 입력 ${n}건`);
+    } catch (e: any) {
+      await recordRun(db, {
+        artistId: artist.id, source: "briefing", status: "error",
+        itemCount: 0, newCount: 0, error: String(e?.message ?? e), startedAt,
+      });
+      console.error(`[${artist.id}/briefing] error: ${e?.message ?? e}`);
     }
   }
 
