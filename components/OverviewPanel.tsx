@@ -2,12 +2,25 @@
 
 import { FeedCard, UpcomingEvent } from "@/lib/types";
 import { formatTimeAgo as formatTime } from "@/lib/shared";
-import { Cluster } from "@/lib/briefing/types";
+import { Cluster, ClusterStatus, HeroBriefing, TldrLine } from "@/lib/briefing/types";
 import { clusterCards } from "@/lib/briefing/cluster";
 import { MUST_SEE_RE, FOR_FUN_RE, scoreCluster, pickHeadline } from "@/lib/briefing/score";
 import { getTLDR } from "@/lib/briefing/tldr";
+import { cardTier } from "@/lib/briefing/trust";
 
 type SourceId = "all" | "twitter" | "community" | "youtube" | "news";
+
+/** /api/briefing 응답의 briefings 행 (PR-9) */
+export interface BriefingRow {
+  built_at: string;
+  hero: HeroBriefing;
+  tldr: TldrLine[];
+  stats: {
+    cardCount24h: number;
+    bySource: Record<string, number>;
+    officialActive: boolean;
+  };
+}
 
 interface Props {
   cards: FeedCard[];
@@ -24,6 +37,8 @@ interface Props {
   // 클러스터 토큰화 시 stopword에 추가할 아티스트 본인 식별자(name/en/aliases).
   // groupName은 일부러 제외 — 솔로/그룹 클러스터 분리 의도.
   clusterStopTerms?: string[];
+  // 서버 브리핑 스냅샷. null이면 기존 클라이언트 계산으로 fallback (격리는 페이즈 C)
+  briefing?: BriefingRow | null;
   onSelectSource: (source: SourceId) => void;
 }
 
@@ -91,24 +106,20 @@ function getDDayClass(dday: number): string {
 
 type TrustBadge = { label: string; color: string; dot: string };
 
+// 카드 배지 = 신뢰도 계층 1 (공식/언론/팬덤) — PR-9에서 cardTier 3분류로 교체
 function getTrustBadge(card: FeedCard): TrustBadge {
-  if (card.source === "youtube" && card.youtubeCategory === "official") {
-    return { label: "공식", color: "#34d399", dot: "🟢" };
-  }
-  if (card.source === "news") {
-    return { label: "언론보도", color: "#fbbf24", dot: "🟡" };
-  }
-  if (card.source === "community") {
-    return { label: "팬커뮤니티", color: "#a78bfa", dot: "🟣" };
-  }
-  if (card.source === "twitter") {
-    return { label: "X 반응", color: "#60a5fa", dot: "🔵" };
-  }
-  if (card.source === "youtube" && card.youtubeCategory === "search") {
-    return { label: "영상", color: "#f87171", dot: "🔴" };
-  }
-  return { label: "기타", color: "#94a3b8", dot: "⚪" };
+  const tier = cardTier(card);
+  if (tier === "official") return { label: "공식", color: "#34d399", dot: "🟢" };
+  if (tier === "press")    return { label: "언론", color: "#fbbf24", dot: "🟡" };
+  return { label: "팬덤", color: "#a78bfa", dot: "🟣" };
 }
+
+// 클러스터 상태 배지 = 신뢰도 계층 2 (확정/추정/반응)
+const STATUS_BADGE: Record<ClusterStatus, TrustBadge> = {
+  confirmed: { label: "확정 · 공식 확인",      color: "#34d399", dot: "🟢" },
+  likely:    { label: "추정 · 공식 발표 전",   color: "#fbbf24", dot: "🟡" },
+  reaction:  { label: "반응 · 팬커뮤니티 중심", color: "#a78bfa", dot: "🟣" },
+};
 
 function getContextHint(card: FeedCard): string | null {
   const text = `${card.title} ${card.summary}`.toLowerCase();
@@ -150,21 +161,31 @@ export default function OverviewPanel({
   primaryColor,
   upcomingEvents = [],
   clusterStopTerms,
+  briefing = null,
   onSelectSource,
 }: Props) {
   const unique = uniqueById(cards);
   const total = unique.length;
 
-  const clusters = clusterCards(unique, artistName, clusterStopTerms);
-  const ranked = clusters
-    .map(c => ({ cluster: c, score: scoreCluster(c) }))
-    .sort((a, b) => b.score - a.score);
+  // 서버 브리핑 스냅샷 우선 (PR-9, 결정 10). null이면 클라이언트 계산 fallback.
+  const hero = briefing?.hero ?? null;
+  const serverTldr = briefing?.tldr ?? null;
 
-  const headline = pickHeadline(ranked);
-  const headlineIds = new Set((headline?.cards || []).slice(0, 8).map(c => c.id));
+  let clientHeadline: Cluster | null = null;
+  let headlineIds: Set<string>;
+  if (hero) {
+    headlineIds = new Set(hero.topCardIds);
+  } else {
+    const clusters = clusterCards(unique, artistName, clusterStopTerms);
+    const ranked = clusters
+      .map(c => ({ cluster: c, score: scoreCluster(c) }))
+      .sort((a, b) => b.score - a.score);
+    clientHeadline = pickHeadline(ranked);
+    headlineIds = new Set((clientHeadline?.cards || []).slice(0, 8).map(c => c.id));
+  }
   const rest = unique.filter(c => !headlineIds.has(c.id));
 
-  const tldr = getTLDR(unique);
+  const tldr = serverTldr ? null : getTLDR(unique);
   const mustSee = rest.filter(c => bucketOf(c) === "mustSee").slice(0, 4);
   const trending = rest.filter(c => bucketOf(c) === "trending").slice(0, 4);
   const forFun = rest.filter(c => bucketOf(c) === "forFun").slice(0, 4);
@@ -181,15 +202,21 @@ export default function OverviewPanel({
         <div className="text-[11px] font-semibold text-slate-500">{total}개 수집</div>
       </div>
 
-      {headline ? (
-        <HeadlineCard cluster={headline} primaryColor={primaryColor} />
+      {hero ? (
+        <BriefingHeroCard hero={hero} cards={unique} primaryColor={primaryColor} />
+      ) : clientHeadline ? (
+        <HeadlineCard cluster={clientHeadline} primaryColor={primaryColor} />
       ) : (
         <div className="rounded-xl border border-slate-800 bg-slate-900/45 px-4 py-5 text-center text-[12px] text-slate-500">
           오늘은 조용해요. 잠시 후 새로고침해보세요.
         </div>
       )}
 
-      <TLDRSection tldr={tldr} />
+      {serverTldr ? (
+        <ServerTLDRSection lines={serverTldr} cards={unique} />
+      ) : (
+        <TLDRSection tldr={tldr!} />
+      )}
 
       <UpcomingEventsBlock events={upcomingEvents} primaryColor={primaryColor} />
 
@@ -237,6 +264,126 @@ export default function OverviewPanel({
 }
 
 // ── 서브 컴포넌트 ────────────────────────────────────────────────────────
+
+/** 서버 브리핑 스냅샷 기반 Hero (PR-9) — status 배지 + 출처 다양성 + whyImportant */
+function BriefingHeroCard({
+  hero, cards, primaryColor,
+}: { hero: HeroBriefing; cards: FeedCard[]; primaryColor: string }) {
+  const byId = new Map(cards.map(c => [c.id, c]));
+  const top = hero.topCardIds.map(id => byId.get(id)).find(Boolean);
+  const status = STATUS_BADGE[hero.status];
+  const context = top ? getContextHint(top) : null;
+  const diversityParts = [
+    hero.diversity.news > 0 ? `뉴스 ${hero.diversity.news}` : "",
+    hero.diversity.fandom > 0 ? `팬덤 ${hero.diversity.fandom}` : "",
+    hero.diversity.official > 0 ? `공식 ${hero.diversity.official}` : "",
+  ].filter(Boolean);
+
+  const body = (
+    <>
+      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        <span
+          className="rounded-full px-2 py-0.5 text-[10px] font-black"
+          style={{ backgroundColor: primaryColor, color: "#0d0d1a" }}
+        >
+          오늘의 헤드라인
+        </span>
+        <span
+          className="rounded-full border px-1.5 py-0.5 text-[10px] font-bold"
+          style={{ color: status.color, borderColor: `${status.color}55` }}
+        >
+          {status.dot} {status.label}
+        </span>
+        {hero.cardCount > 0 && (
+          <span className="rounded-full bg-slate-800/80 px-1.5 py-0.5 text-[10px] font-bold text-slate-300">
+            관련 {hero.cardCount}건{diversityParts.length > 0 && ` · ${diversityParts.join(" · ")}`}
+          </span>
+        )}
+      </div>
+
+      <div className="text-[15px] font-black leading-snug text-slate-100">
+        {hero.headline}
+      </div>
+
+      <div className="mt-1.5 text-[11px] font-semibold text-slate-400">
+        {hero.whyImportant}
+      </div>
+
+      {context && (
+        <div className="mt-2 rounded-lg bg-slate-950/55 px-3 py-2 text-[11px] leading-relaxed text-slate-300">
+          <span className="mr-1 font-bold text-slate-200">💡 입문자 가이드</span>
+          {context}
+        </div>
+      )}
+
+      {top && (
+        <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
+          <span className="truncate">{top.sourceName}</span>
+          <span className="flex-shrink-0">{formatTime(top.publishedAt)}</span>
+        </div>
+      )}
+    </>
+  );
+
+  const className = "block rounded-2xl border-2 p-4 transition-colors hover:bg-slate-900/60";
+  const style = { borderColor: `${primaryColor}55`, backgroundColor: `${primaryColor}10` };
+
+  // topCard가 현재 피드 윈도에 없으면 링크 없는 카드로 렌더 (조용히 스킵)
+  return top ? (
+    <a href={top.link} target="_blank" rel="noopener noreferrer" className={className} style={style}>
+      {body}
+    </a>
+  ) : (
+    <div className={className} style={style}>{body}</div>
+  );
+}
+
+const TLDR_META: Record<TldrLine["kind"], { icon: string; label: string }> = {
+  official: { icon: "🚨", label: "공식" },
+  trending: { icon: "📰", label: "화제" },
+  fandom:   { icon: "💬", label: "팬덤" },
+};
+
+/** 서버 브리핑 스냅샷 기반 3줄 요약 (PR-9) */
+function ServerTLDRSection({ lines, cards }: { lines: TldrLine[]; cards: FeedCard[] }) {
+  const byId = new Map(cards.map(c => [c.id, c]));
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/45 p-3">
+      <div className="mb-2 text-[12px] font-bold text-slate-200">📌 오늘 3줄 요약</div>
+      <div className="space-y-0.5">
+        {lines.map(line => {
+          const meta = TLDR_META[line.kind];
+          const card = line.cardId ? byId.get(line.cardId) : undefined;
+          if (!card) {
+            return (
+              <div key={line.kind} className="flex items-center gap-2 px-1 py-1 text-[12px] text-slate-500">
+                <span>{meta.icon}</span>
+                <span className="text-[10px] font-bold text-slate-500">{meta.label}</span>
+                <span className="text-slate-600">·</span>
+                <span>{line.text}</span>
+              </div>
+            );
+          }
+          return (
+            <a
+              key={line.kind}
+              href={card.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 rounded-lg px-1 py-1 transition-colors hover:bg-slate-950/40"
+            >
+              <span>{meta.icon}</span>
+              <span className="text-[10px] font-bold text-slate-400">{meta.label}</span>
+              <span className="line-clamp-1 flex-1 text-[12px] font-semibold text-slate-200">
+                {line.text}
+              </span>
+            </a>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function HeadlineCard({ cluster, primaryColor }: { cluster: Cluster; primaryColor: string }) {
   const top = cluster.topCard;

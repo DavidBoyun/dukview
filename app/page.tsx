@@ -8,7 +8,7 @@ import { isLowReadability } from "@/lib/readabilityFilter";
 import { useFilterContext } from "@/contexts/FilterContext";
 import FeedCard from "@/components/FeedCard";
 import SourceFilterPanel from "@/components/SourceFilter";
-import OverviewPanel from "@/components/OverviewPanel";
+import OverviewPanel, { BriefingRow } from "@/components/OverviewPanel";
 import XSignalComposer from "@/components/XSignalComposer";
 
 const SOURCES = [
@@ -232,6 +232,17 @@ export default function HomePage() {
   }, [artist.id, manualTwitterCards]);
 
   useEffect(() => { setProfileImageFailed(false); }, [artist.id]);
+
+  // ── 서버 브리핑 스냅샷 로드 (PR-9) — 피드와 병렬, 실패 시 null = 클라 계산 fallback
+  const [briefing, setBriefing] = useState<BriefingRow | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/briefing?artistId=${artist.id}`)
+      .then(res => (res.ok ? res.json() : { briefing: null }))
+      .then(data => { if (!cancelled) setBriefing(data.briefing ?? null); })
+      .catch(() => { if (!cancelled) setBriefing(null); });
+    return () => { cancelled = true; };
+  }, [artist.id]);
 
   // ── 피드 로드 (기존 로직 유지) ───────────────────────────────────────────────
   const loadFeed = useCallback(async (options?: { includeYoutubeSearch?: boolean; useYoutubeSearchApi?: boolean }) => {
@@ -599,6 +610,7 @@ export default function HomePage() {
           primaryColor={primaryColor}
           upcomingEvents={artist.upcomingEvents || []}
           clusterStopTerms={[artist.name, artist.en, ...(artist.aliases || [])]}
+          briefing={briefing}
           onSelectSource={(source) => {
             setActiveSource(source);
             if (source !== "youtube") setActiveYoutubeCategory("all");
