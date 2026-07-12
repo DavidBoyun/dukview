@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "node --import tsx --test lib/briefing/trust.test.ts lib/briefing/score.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",
