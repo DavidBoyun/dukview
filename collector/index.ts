@@ -25,6 +25,9 @@ async function main() {
   const arg = process.argv.find(a => a.startsWith("--sources="));
   const requested = (arg ? arg.split("=")[1].split(",") : Object.keys(COLLECTORS)) as SourceName[];
   const sources = requested.filter(s => COLLECTORS[s]);
+  // 경보 검증용 테스트 훅: --simulate-empty=news 로 해당 소스를 강제 0건 처리 (PR-6)
+  const simArg = process.argv.find(a => a.startsWith("--simulate-empty="));
+  const simulateEmpty = simArg ? simArg.split("=")[1].split(",") : [];
 
   const db = getDb();
   await syncArtists(db, ARTISTS);
@@ -35,7 +38,9 @@ async function main() {
     for (const source of sources) {
       const startedAt = new Date().toISOString();
       try {
-        const cards = await COLLECTORS[source]!(artist);
+        const cards = simulateEmpty.includes(source)
+          ? []
+          : await COLLECTORS[source]!(artist);
         const newCount = await upsertCards(db, cards);
         const status = cards.length === 0 ? "empty" : "ok";
         await recordRun(db, {
