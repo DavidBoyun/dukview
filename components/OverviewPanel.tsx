@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { FeedCard, UpcomingEvent } from "@/lib/types";
 import { formatTimeAgo as formatTime } from "@/lib/shared";
 import { Cluster, ClusterStatus, HeroBriefing, TldrLine } from "@/lib/briefing/types";
@@ -259,6 +260,8 @@ export default function OverviewPanel({
         compact
         primaryColor={primaryColor}
       />
+
+      <SubscribeCTA artistName={artistName} primaryColor={primaryColor} />
     </section>
   );
 }
@@ -487,6 +490,64 @@ function TLDRLine({
         {card.title}
       </span>
     </a>
+  );
+}
+
+/** 뉴스레터 구독 CTA — 브리핑 하단 1개만 (PR-10, DESIGN B6) */
+function SubscribeCTA({ artistName, primaryColor }: { artistName: string; primaryColor: string }) {
+  const [email, setEmail] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const res = await fetch("/api/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, website: "" }),
+      });
+      const data = await res.json();
+      setMessage(res.ok ? data.message : data.error || "잠시 후 다시 시도해 주세요");
+      if (res.ok) setEmail("");
+    } catch {
+      setMessage("잠시 후 다시 시도해 주세요");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/45 p-3">
+      <div className="text-[12px] font-bold text-slate-200">
+        📮 매일 아침, 오늘의 {artistName} 브리핑
+      </div>
+      <div className="mt-0.5 text-[10px] text-slate-500">
+        출근길 3분 — 진짜 소식만 골라 메일로 보내드려요
+      </div>
+      <form onSubmit={submit} className="mt-2 flex gap-1.5">
+        <input
+          type="email"
+          required
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          placeholder="이메일 주소"
+          className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950/60 px-2.5 py-1.5 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none"
+        />
+        <button
+          type="submit"
+          disabled={busy}
+          className="flex-shrink-0 rounded-lg px-3 py-1.5 text-[12px] font-bold disabled:opacity-60"
+          style={{ backgroundColor: primaryColor, color: "#0d0d1a" }}
+        >
+          {busy ? "..." : "구독"}
+        </button>
+      </form>
+      {message && <div className="mt-1.5 text-[11px] text-slate-400">{message}</div>}
+    </div>
   );
 }
 
